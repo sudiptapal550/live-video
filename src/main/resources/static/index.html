@@ -14,7 +14,7 @@
     const localVideo = document.getElementById("localVideo");
      const remoteVideo = document.getElementById("remoteVideo");
 
-     const ws = new WebSocket("ws://localhost:8080/signal");
+     const ws = new WebSocket("wss://live-video-2.onrender.com:8080/signal");
      const pc = new RTCPeerConnection({
        iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
      });

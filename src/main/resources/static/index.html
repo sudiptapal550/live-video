@@ -1,0 +1,171 @@
+<!-- index.html -->
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WebRTC Demo</title>
+</head>
+<body>
+<h2>Local Video</h2>
+<video id="localVideo" autoplay playsinline muted width="320" height="240"></video>
+<h2>Remote Video</h2>
+<video id="remoteVideo" autoplay playsinline width="320" height="240"></video>
+
+<script>
+    const localVideo = document.getElementById("localVideo");
+     const remoteVideo = document.getElementById("remoteVideo");
+
+     const ws = new WebSocket("ws://localhost:8080/signal");
+     const pc = new RTCPeerConnection({
+       iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+     });
+
+     console.log("Started...");
+
+     let localStream;
+     // 'isOfferer' logic is basic: the first client to trigger onopen and complete the timeout will be the offerer.
+     // For robust applications, a more sophisticated signaling mechanism would determine the offerer.
+     let isOfferer = false;
+
+     navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+       .then(stream => {
+         localVideo.srcObject = stream;
+         localStream = stream;
+
+
+         // Add tracks to the peer connection as soon as the local stream is available.
+         // This is generally done once.
+         localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+
+         // Attempt to initiate connection if WebSocket opens successfully
+         if (ws.readyState === WebSocket.OPEN) {
+           handleWebSocketOpen();
+         }
+       })
+       .catch(error => {
+         console.error("Error accessing media devices.", error);
+       });
+
+     ws.onopen = () => {
+       console.log("WebSocket connection opened.");
+       handleWebSocketOpen();
+     };
+
+     function handleWebSocketOpen() {
+       // Ensure localStream is available before attempting to create an offer
+       if (!localStream) {
+         console.log("Local stream not yet available. Waiting for media devices.");
+         // Optionally, you could add a listener or a check here if mediaDevices.getUserMedia is slow
+         return;
+       }
+       console.log("Opening connection logic triggered.");
+       // This timeout makes this client an offerer after 5 seconds.
+       // In a real application, you'd have a more deterministic way to decide the offerer.
+       setTimeout(() => {
+         isOfferer = true;
+         console.log("Trying to create an offer (isOfferer = true)");
+         // Tracks are typically added before creating an offer if not already added.
+         // Re-adding tracks (if already added when stream was acquired) is usually harmless but can be optimized.
+         // localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+         pc.createOffer()
+           .then(offer => {
+             return pc.setLocalDescription(offer);
+           })
+           .then(() => {
+             ws.send(JSON.stringify(pc.localDescription));
+             console.log("Offer sent after 5 seconds delay.");
+           })
+           .catch(error => {
+             console.error("Error creating offer:", error);
+           });
+       }, 0);
+     }
+
+     ws.onmessage = async ({ data }) => {
+       // console.log("Message received from signaling server:", data);
+       try {
+      // console.log(Json.stringfy(data));
+         const msg = JSON.parse(data);
+         console.log(msg);
+         //const msg = {};
+
+
+         if (msg.type === "offer") {
+           console.log("Received offer.");
+           // Ensure localStream is available before processing the offer
+           if (!localStream) {
+             console.error("Local stream not available when offer received. Cannot proceed.");
+             // Potentially wait for media and then re-process, or send an error back.
+             return;
+           }
+           // Tracks should be added before setting remote description and creating answer if not already done.
+           // localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+
+           // Delay the response by 5 seconds to simulate broadcast delay (as per original code)
+           setTimeout(async () => {
+             try {
+               await pc.setRemoteDescription(new RTCSessionDescription(msg));
+               console.log("Remote description (offer) set.");
+               const answer = await pc.createAnswer();
+               console.log("Answer created.");
+               await pc.setLocalDescription(answer);
+               console.log("Local description (answer) set.");
+               ws.send(JSON.stringify(pc.localDescription));
+               console.log("Answer sent after delay.");
+             } catch (error) {
+               console.error("Error handling offer:", error);
+             }
+           }, 0); // 5 sec delay (as per original comment, though labeled 10 sec previously)
+         } else if (msg.type === "answer") {
+           console.log("Received answer.");
+           await pc.setRemoteDescription(new RTCSessionDescription(msg));
+           console.log("Remote description (answer) set.");
+         } else if (msg.type === "candidate") {
+           console.log("Received ICE candidate.");
+           if (msg.candidate) {
+             await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
+             console.log("ICE candidate added.");
+           }
+         }
+       } catch (error) {
+         console.error("Failed to parse message or handle incoming data:", error);
+       }
+     };
+
+     ws.onerror = (error) => {
+       console.error("WebSocket error:", error);
+     };
+
+     ws.onclose = () => {
+       console.log("WebSocket connection closed.");
+     };
+
+     pc.onicecandidate = (event) => {
+       if (event.candidate) {
+         console.log("Generated ICE candidate:", event.candidate);
+         ws.send(JSON.stringify({ type: "candidate", candidate: event.candidate }));
+       } else {
+         console.log("All ICE candidates have been sent.");
+       }
+     };
+
+
+pc.addEventListener('track', (event) => {
+    const [remoteStream] = event.streams;
+    console.log("Started for remote");
+    remoteVideo.srcObject = event.streams[0];
+    });
+
+     pc.oniceconnectionstatechange = () => {
+       console.log(`ICE connection state: ${pc.iceConnectionState}`);
+       if (pc.iceConnectionState === "failed" || pc.iceConnectionState === "disconnected" || pc.iceConnectionState === "closed") {
+         console.error("ICE connection failed, disconnected, or closed.");
+         // You might want to attempt to restart ICE or close the connection.
+       }
+     };
+
+     pc.onsignalingstatechange = () => {
+       console.log(`Signaling state: ${pc.signalingState}`);
+     };
+</script>
+</body>
+</html>

@@ -16,7 +16,13 @@
 
      const ws = new WebSocket("wss://live-video-2.onrender.com/signal");
      const pc = new RTCPeerConnection({
-       iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+       iceServers: [
+       { urls: "stun:stun.l.google.com:19302" },
+       {
+        urls: 'turn:openrelay.metered.ca:80',  // Free TURN server
+        username: 'openrelayproject',
+        credential: 'openrelayproject'
+        }]
      });
 
      console.log("Started...");
@@ -47,6 +53,7 @@
 
      ws.onopen = () => {
        console.log("WebSocket connection opened.");
+       console.log("Ki re connect holo");
        handleWebSocketOpen();
      };
 
